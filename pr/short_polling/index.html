@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Short Polling — Уведомления</title>
+</head>
+<body>
+  <header>
+    <h1>Уведомления</h1>
+    <p id="status">Ожидание</p>
+  </header>
+
+  <main>
+    <div>
+      <button type="button" id="toggle-btn">Пауза</button>
+      <label>
+        Интервал:
+        <select id="interval-select">
+          <option value="3000" selected>3000 мс (3 сек)</option>
+          <option value="1000">1000 мс (1 сек)</option>
+        </select>
+      </label>
+      <span>Запросов: <strong id="counter">0</strong></span>
+    </div>
+
+    <ul id="events"></ul>
+  </main>
+
+  <script>
+    let count = 0;
+    let isPaused = false;
+    let timerId = null;
+    let controller = null;
+
+    const statusEl = document.querySelector('#status');
+    const counterEl = document.querySelector('#counter');
+    const listEl = document.querySelector('#events');
+    const toggleBtn = document.querySelector('#toggle-btn');
+    const intervalSelect = document.querySelector('#interval-select');
+
+    async function poll() {
+      if (isPaused) return;
+      controller = new AbortController();
+
+      try {
+        const response = await fetch('events.php', {
+          cache: 'no-store',
+          signal: controller.signal
+        });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+
+        const data = await response.json();
+        listEl.replaceChildren(
+          ...data.events.map(value => {
+            const li = document.createElement('li');
+            li.textContent = value;
+            return li;
+          })
+        );
+        statusEl.textContent = 'Обновлено: ' + new Date().toLocaleTimeString();
+      } catch (error) {
+        if (error.name !== 'AbortError') {
+          statusEl.textContent = 'Ошибка: ' + error.message;
+        }
+      } finally {
+        counterEl.textContent = ++count;
+        if (!isPaused) {
+          timerId = setTimeout(poll, Number(intervalSelect.value));
+        }
+      }
+    }
+
+    toggleBtn.addEventListener('click', () => {
+      isPaused = !isPaused;
+      toggleBtn.textContent = isPaused ? 'Возобновить' : 'Пауза';
+      if (isPaused) {
+        clearTimeout(timerId);
+        if (controller) controller.abort();
+        statusEl.textContent = 'Опрос на паузе';
+      } else {
+        poll();
+      }
+    });
+
+    intervalSelect.addEventListener('change', () => {
+      clearTimeout(timerId);
+      if (!isPaused) timerId = setTimeout(poll, Number(intervalSelect.value));
+    });
+
+    window.addEventListener('beforeunload', () => {
+      clearTimeout(timerId);
+      if (controller) controller.abort();
+    });
+
+    poll();
+  </script>
+</body>
+</html>
